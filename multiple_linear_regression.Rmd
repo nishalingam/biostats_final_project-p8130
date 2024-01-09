@@ -1,0 +1,154 @@
+---
+title: "Multiple Linear Regression"
+author: "Allison Xia"
+date: "2023-12-06"
+output: github_document
+fontsize: 12pt
+header-includes: \usepackage{setspace}\doublespacing
+---
+# Multiple Linear Regression
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, message=FALSE,warning=FALSE)
+library(tidyverse)
+library(dplyr)
+library(patchwork)
+library(corrplot)
+library(gtsummary)
+```
+
+```{r load data}
+df = read_csv("data/Project_1_data.csv")|>
+  janitor::clean_names()|>
+  mutate(
+    wkly_study_hours=ifelse(wkly_study_hours=="10-May","5-10",wkly_study_hours)
+  )|>
+  na.omit()
+```
+
+
+
+```{r categorical variables to factors}
+# Transforming categorical variables to factors
+df_transformed <- df |> 
+  mutate(
+    gender = as.factor(gender),
+    ethnic_group = as.factor(ethnic_group),
+    parent_educ = factor(parent_educ,
+                         levels= c("some high school", "high school", "associate's degree", "some college", "bachelor's degree", "master's degree")),
+    lunch_type = as.factor(lunch_type),
+    test_prep = as.factor(test_prep),
+    parent_marital_status = as.factor(parent_marital_status),
+    practice_sport = factor(practice_sport,
+                            levels = c("never", "sometimes", "regularly")),
+    is_first_child = factor(is_first_child),
+    transport_means = as.factor(transport_means),
+    wkly_study_hours = factor(wkly_study_hours,
+                              levels = c("< 5", "5-10", "> 10"))
+  )
+
+```
+
+```{r MLR models}
+# Build the MLR model for Math scores
+model_math <- lm(math_score ~ gender + ethnic_group + parent_educ + lunch_type + test_prep + parent_marital_status + practice_sport + is_first_child + nr_siblings + transport_means + wkly_study_hours, data = df_transformed)
+model_read <- lm(reading_score ~ gender + ethnic_group + parent_educ + lunch_type + test_prep + parent_marital_status + practice_sport + is_first_child + nr_siblings + transport_means + wkly_study_hours, data = df_transformed)
+model_write <- lm(writing_score ~ gender + ethnic_group + parent_educ + lunch_type + test_prep + parent_marital_status + practice_sport + is_first_child + nr_siblings + transport_means + wkly_study_hours, data = df_transformed)
+```
+
+## MLR - Math
+```{r math}
+summary(model_math)
+```
+
+### Coefficients and Significance Levels:
+* Intercept (44.1006): The expected value of math_score when all other predictors are at their reference level or zero.
+* gendermale (5.0855, p < 0.001): Being male is associated with an average increase of 5.0855 points in math_score compared to females, holding all else constant. This is statistically significant.
+* ethnic_group: Only ethnic_groupgroup E (11.1752, p < 0.001) is significant, suggesting students in this group score higher in math compared to the reference group.
+* parent_educ: The associate's degree (4.9058, p = 0.00584), bachelor's degree (6.6652, p = 0.00140), and master's degree (6.8096, p = 0.00760) are significant and associated with higher math scores compared to the reference category.
+* lunch_typestandard (12.3539, p < 0.001): Students with standard lunch type score significantly higher.
+* test_prepnone (-4.7717, p < 0.001): Not participating in test preparation is associated with lower math scores.
+* parent_marital_status: Married (5.4805, p = 0.00075) and Widowed (7.7944, p = 0.04134) are associated with higher scores.
+* practice_sport: Not significant.
+* is_first_childyes: Not significant.
+* nr_siblings (0.7403, p = 0.05461): A borderline significant positive association with math scores.
+* transport_meansschool_bus: Not significant.
+* wkly_study_hours: Studying 5-10 hours (3.5394, p = 0.00863) shows a significant positive effect.
+
+### Residuals:
+The spread of residuals suggests the errors are somewhat symmetrically distributed around the predicted values, which is a good sign for linear regression assumptions.
+
+### Model Fit:
+Residual Standard Error (13.52): Indicates the average difference between the observed values and the values predicted by the model.
+
+### R-squared:
+* Multiple R-squared (0.3221): About 32.21% of the variability in math_score is explained by the model.
+* Adjusted R-squared (0.2956): Adjusts the R-squared for the number of predictors, a better measure for models with multiple predictors.
+
+### Statistic & p-value
+F-statistic (12.18) and p-value (< 2.2e-16): The model is statistically significant, meaning it performs better than a model with no predictors.
+
+## MLR - reading
+```{r}
+summary(model_read)
+```
+### Coefficients and Significance Levels:
+* **Intercept (60.8028)**: The expected value of `reading_score` when all other predictors are at their reference level or zero.
+* **gendermale (-7.6725, p < 0.001)**: Being male is associated with an average decrease of 7.6725 points in `reading_score` compared to females, holding all else constant. This is statistically significant.
+* **ethnic_group**: Only `ethnic_groupgroup E` (5.9165, p = 0.013402) is significant, suggesting students in this group score higher in reading compared to the reference group.
+* **parent_educ**: The `associate's degree` (4.7948, p = 0.005776), `bachelor's degree` (7.3496, p = 0.000313), and `master's degree` (8.7149, p = 0.000479) are significant and associated with higher reading scores compared to the reference category.
+* **lunch_typestandard (8.4374, p < 0.001)**: Students with standard lunch type score significantly higher.
+* **test_prepnone (-6.2822, p < 0.001)**: Not participating in test preparation is associated with lower reading scores.
+* **parent_marital_statusmarried (5.2439, p = 0.000950)**: Children of married parents score higher.
+* **practice_sport**: Not significant.
+* **is_first_childyes**: Not significant.
+* **nr_siblings (0.3882, p = 0.301309)**: No significant association with reading scores.
+* **transport_meansschool_bus**: Not significant.
+* **wkly_study_hours**: Studying 5-10 hours (2.6835, p = 0.041104) shows a significant positive effect.
+
+### Residuals:
+The spread of residuals suggests the errors are somewhat symmetrically distributed around the predicted values, which is a good sign for linear regression assumptions.
+
+### Model Fit:
+* **Residual Standard Error (13.2)**: Indicates the average difference between the observed values and the values predicted by the model.
+
+### R-squared:
+* **Multiple R-squared (0.2709)**: About 27.09% of the variability in `reading_score` is explained by the model.
+* **Adjusted R-squared (0.2425)**: Adjusts the R-squared for the number of predictors, a better measure for models with multiple predictors.
+
+### Statistic & p-value
+* **F-statistic (9.527)** and **p-value (< 2.2e-16)**: The model is statistically significant, meaning it performs better than a model with no predictors.
+
+## MLR - writing
+```{r}
+summary(model_write) 
+```
+### Coefficients and Significance Levels:
+* **Intercept (57.808758)**: The expected value of `writing_score` when all other predictors are at their reference level or zero.
+* **gendermale (-9.268845, p < 0.001)**: Being male is associated with an average decrease of 9.268845 points in `writing_score` compared to females, holding all else constant. This is statistically significant.
+* **ethnic_group**: `ethnic_groupgroup D` (5.010576, p = 0.016531) and `ethnic_groupgroup E` (6.018419, p = 0.008673) are significant, suggesting students in these groups score higher in writing compared to the reference group.
+* **parent_educ**: `associate's degree` (6.130783, p = 0.000239), `some college` (4.338798, p = 0.010898), `bachelor's degree` (9.217680, p = 2.62e-06), and `master's degree` (11.712279, p = 1.10e-06) are significant and associated with higher writing scores compared to the reference category.
+* **lunch_typestandard (9.390698, p < 0.001)**: Students with standard lunch type score significantly higher.
+* **test_prepnone (-8.754351, p < 0.001)**: Not participating in test preparation is associated with lower writing scores.
+* **parent_marital_statusmarried (5.246610, p = 0.000561)**: Children of married parents score higher.
+* **practice_sport**: Not significant.
+* **is_first_childyes**: Not significant.
+* **nr_siblings (0.546033, p = 0.129340)**: No significant association with writing scores.
+* **transport_meansschool_bus**: Not significant.
+* **wkly_study_hours**: Studying 5-10 hours (2.802323, p = 0.026048) shows a significant positive effect.
+
+### Residuals:
+The spread of residuals suggests the errors are somewhat symmetrically distributed around the predicted values, which is a good sign for linear regression assumptions.
+
+### Model Fit:
+* **Residual Standard Error (12.65)**: Indicates the average difference between the observed values and the values predicted by the model.
+
+### R-squared:
+* **Multiple R-squared (0.3634)**: About 36.34% of the variability in `writing_score` is explained by the model.
+* **Adjusted R-squared (0.3385)**: Adjusts the R-squared for the number of predictors, a better measure for models with multiple predictors.
+
+### Statistic & p-value
+* **F-statistic (14.63)** and **p-value (< 2.2e-16)**: The model is statistically significant, meaning it performs better than a model with no predictors.
+
+
+

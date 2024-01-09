@@ -1,0 +1,136 @@
+---
+title: "scrap_work"
+output: html_document
+date: "2023-12-06"
+---
+
+My report stuff:
+
+Methods - 
+
+Variable selection for the three scores was performed after data exploration and diagnostics. Stepwise elimination was manually performed in the forwards and backwards directions to determine which variables should be included in our three potential linear models, by including (forwards) or excluding (backwards) statistically significant variables, one-by-one. An alpha level = 0.05 was used for this process. In addition to the manual elimination, the one-line stepwise function was used forwards and backwards as well. This method combines the stepwise method with a criteria-based approach, which aims to minimize the AIC (Akaike Information Criterion) value, as much as possible. Three criteria-based plots were also constructed to determine the optimal number of variables which should be included in the ideal model. These plots utilized adjusted R^2 values, BIC, and Cp.
+
+The LASSO method was the final method used to help guide our variable selection. The minimization of MSE was balanced with model complexity by removing a specific quantity of variables through the use of the lambda parameter's value. 
+
+Discussion - 
+
+Manual stepwise elimination produced the same model in its backwards and forwards directions for each of the three scores, respectively. However, interestingly, the one-line backwards stepwise function method included an extra variable - Number of Siblings - in the final model for the math score, which was considered insignificant by the manual process and excluded. Similarly, with writing score, the one-line function included Weekly Study Hours as an extra variable to be included in the resulting model. Reading score did not have any differences between its manual and one-line stepwise models. 
+
+Additionally, when comparing between the manual stepwise forwards and one-line forwards methods, there are no differences between the models for writing score or reading score, yet the same difference was noted for math score, as mentioned above. Overall, the models derived manually and from the one-line seem to be very similar in terms of best-fit, since their adjusted R^2 values and MSEs are either equal in value or within 0.3 to 1 units of each other, when referring to the backwards-derived models for math, reading, and writing score. The forwards-derived models math and reading scores were similar in level of best-fit between their manual and one-line counterparts, as described above in terms of MSE and adjusted R-squared value. The writing score's one-line model seemed to have a better fit than the manually derived model since the MSE was nearly 3 units lower while sharing the same adjusted R^2 value.
+
+It seems that when using the single-function method, for all scores and for both forwards and backwards elimination, extra variables were included despite their individual p-values \> 0.05. It also interesting to note that despite there only being slight differences between the adjusted R-squared values and MSEs of the one-line and manually-derived models, the one-line models always had the lower MSE of the pair. This reinforces that the one-line models would likely be the better choice to include in our final models. The criteria plots also revealed that the number of variables that should be included in our final models aligned with that of the one-line models, which typically included the same number of variables, or one more, as seen with the math score's model, which contained 7 variables rather than the manual model's 6.
+
+; therefore the manually-selected models should be used for comparison and validation
+
+
+```{r}
+steppy_math = regsubsets(x = math_score ~ ., data = step_df, nbest = 2, nvmax = 5, force.out = c(12), method = "seqrep")
+summary(steppy_math)
+
+# overall_p <- function(my_model) {
+#     f <- summary(my_model)$fstatistic
+#     p <- pf(f[1],f[2],f[3],lower.tail=F)
+#     attributes(p) <- NULL
+#     return(p)
+# }
+
+## Cleaned datasets
+math_df = dplyr::select(df_num, -c(reading_score, writing_score))
+
+reading_df = dplyr::select(df_num, -c(math_score, writing_score))
+
+writing_df = dplyr::select(df_num, -c(reading_score, math_score))
+
+```
+
+### may do by hand?
+
+## Step-wise (automatic) approach: Narrowed down to following subsets
+```{r}
+fit1 = lm(math_score ~ gender, data = math_df)
+summary(fit1)
+fit2 = lm(math_score ~ ethnic_group, data = math_df)
+summary(fit2)
+
+fit3 = lm(math_score ~ parent_educ, data = math_df)
+summary(fit3)
+
+fit4 = lm(math_score ~ lunch_type, data = math_df)
+summary(fit4)
+
+fit5 = lm(math_score ~ test_prep, data = math_df)
+summary(fit5)
+
+fit6 = lm(math_score ~ parent_marital_status, data = math_df)
+summary(fit6)
+
+
+fit7 = lm(math_score ~ practice_sport, data = math_df)
+summary(fit7)
+
+fit8 = lm(math_score ~ is_first_child, data = math_df)
+summary(fit8)
+
+fit9 = lm(math_score ~ nr_siblings, data = math_df)
+summary(fit9)
+
+fit10 = lm(math_score ~ transport_means, data = math_df)
+summary(fit10)
+
+fit11 = lm(math_score ~ wkly_study_hours, data = math_df)
+summary(fit11)
+
+
+```
+## Criteria-based approach - stepwise using AIC:
+```{r}
+leaps(x = math_df[1,13], y = math_df[,14], nbest = 3, method = "adjr2")
+
+mlr_math = lm(math_score ~., data = step_df)
+model.final = step(mlr_math)
+summary(model.final)
+
+final_mlr = lm(formula = math_score ~ gender + ethnic_group + parent_educ + lunch_type + test_prep + nr_siblings + transport_means + wkly_study_hours + reading_score + writing_score, data = step_df)
+# plot(step)
+
+## Reading Score
+
+mlr_reading = lm(reading_score ~., data = step_df)
+
+## Writing Score
+
+mlr_writing = lm(writing_score ~., data = step_df)
+
+intcpt_only_math = lm(math_score ~ 1, data = step_df)
+
+# both_math <- step(intcpt_only_math|>broom::tidy(), direction='both', scope=formula(all), trace=0)
+# 
+# knitr::kable(x = both_math$anova,
+#              caption = "MLR math score ANOVA")
+# 
+# knitr::kable(x = both_math$coeff,
+#              caption = "MLR math score coeff")
+
+```
+
+```{r}
+
+
+## Stepwise w/ CV***
+
+# # Set seed for reproducibility
+# set.seed(123)
+# # Set up repeated k-fold cross-validation
+# train.control <- trainControl(method = "cv", number = 10)
+# # Train the model
+# step.model <- train(math_score ~., data = step_df,
+#                     method = "leapSeq",
+#                     tuneGrid = data.frame(nvmax = 1:5),
+#                     trControl = train.control
+#                     )
+# step.model$results
+# step.model$bestTune
+# summary(step.model$finalModel)
+# coef(step.model$finalModel, 5)
+# https://afit-r.github.io/model_selection
+```

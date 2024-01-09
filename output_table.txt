@@ -1,0 +1,200 @@
+x
+1	<table>
+<caption>table 1</caption>
+ <thead>
+  <tr>
+   <th style="text-align:left;"> variable </th>
+   <th style="text-align:left;"> category </th>
+   <th style="text-align:right;"> count </th>
+   <th style="text-align:right;"> percent </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> gender </td>
+   <td style="text-align:left;"> female </td>
+   <td style="text-align:right;"> 315 </td>
+   <td style="text-align:right;"> 53.662692 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> gender </td>
+   <td style="text-align:left;"> male </td>
+   <td style="text-align:right;"> 272 </td>
+   <td style="text-align:right;"> 46.337308 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> ethnic_group </td>
+   <td style="text-align:left;"> group A </td>
+   <td style="text-align:right;"> 50 </td>
+   <td style="text-align:right;"> 8.517888 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> ethnic_group </td>
+   <td style="text-align:left;"> group B </td>
+   <td style="text-align:right;"> 123 </td>
+   <td style="text-align:right;"> 20.954003 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> ethnic_group </td>
+   <td style="text-align:left;"> group C </td>
+   <td style="text-align:right;"> 174 </td>
+   <td style="text-align:right;"> 29.642249 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> ethnic_group </td>
+   <td style="text-align:left;"> group D </td>
+   <td style="text-align:right;"> 155 </td>
+   <td style="text-align:right;"> 26.405451 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> ethnic_group </td>
+   <td style="text-align:left;"> group E </td>
+   <td style="text-align:right;"> 85 </td>
+   <td style="text-align:right;"> 14.480409 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> parent_educ </td>
+   <td style="text-align:left;"> associate's degree </td>
+   <td style="text-align:right;"> 128 </td>
+   <td style="text-align:right;"> 21.805792 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> parent_educ </td>
+   <td style="text-align:left;"> bachelor's degree </td>
+   <td style="text-align:right;"> 71 </td>
+   <td style="text-align:right;"> 12.095400 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> parent_educ </td>
+   <td style="text-align:left;"> high school </td>
+   <td style="text-align:right;"> 122 </td>
+   <td style="text-align:right;"> 20.783646 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> parent_educ </td>
+   <td style="text-align:left;"> master's degree </td>
+   <td style="text-align:right;"> 39 </td>
+   <td style="text-align:right;"> 6.643952 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> parent_educ </td>
+   <td style="text-align:left;"> some college </td>
+   <td style="text-align:right;"> 116 </td>
+   <td style="text-align:right;"> 19.761499 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> parent_educ </td>
+   <td style="text-align:left;"> some high school </td>
+   <td style="text-align:right;"> 111 </td>
+   <td style="text-align:right;"> 18.909710 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> lunch_type </td>
+   <td style="text-align:left;"> free/reduced </td>
+   <td style="text-align:right;"> 206 </td>
+   <td style="text-align:right;"> 35.093697 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> lunch_type </td>
+   <td style="text-align:left;"> standard </td>
+   <td style="text-align:right;"> 381 </td>
+   <td style="text-align:right;"> 64.906303 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> test_prep </td>
+   <td style="text-align:left;"> completed </td>
+   <td style="text-align:right;"> 208 </td>
+   <td style="text-align:right;"> 35.434412 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> test_prep </td>
+   <td style="text-align:left;"> none </td>
+   <td style="text-align:right;"> 379 </td>
+   <td style="text-align:right;"> 64.565588 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> parent_marital_status </td>
+   <td style="text-align:left;"> divorced </td>
+   <td style="text-align:right;"> 92 </td>
+   <td style="text-align:right;"> 15.672913 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> parent_marital_status </td>
+   <td style="text-align:left;"> married </td>
+   <td style="text-align:right;"> 343 </td>
+   <td style="text-align:right;"> 58.432709 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> parent_marital_status </td>
+   <td style="text-align:left;"> single </td>
+   <td style="text-align:right;"> 137 </td>
+   <td style="text-align:right;"> 23.339012 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> parent_marital_status </td>
+   <td style="text-align:left;"> widowed </td>
+   <td style="text-align:right;"> 15 </td>
+   <td style="text-align:right;"> 2.555366 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> practice_sport </td>
+   <td style="text-align:left;"> never </td>
+   <td style="text-align:right;"> 68 </td>
+   <td style="text-align:right;"> 11.584327 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> practice_sport </td>
+   <td style="text-align:left;"> regularly </td>
+   <td style="text-align:right;"> 218 </td>
+   <td style="text-align:right;"> 37.137990 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> practice_sport </td>
+   <td style="text-align:left;"> sometimes </td>
+   <td style="text-align:right;"> 301 </td>
+   <td style="text-align:right;"> 51.277683 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> is_first_child </td>
+   <td style="text-align:left;"> no </td>
+   <td style="text-align:right;"> 192 </td>
+   <td style="text-align:right;"> 32.708688 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> is_first_child </td>
+   <td style="text-align:left;"> yes </td>
+   <td style="text-align:right;"> 395 </td>
+   <td style="text-align:right;"> 67.291312 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> transport_means </td>
+   <td style="text-align:left;"> private </td>
+   <td style="text-align:right;"> 229 </td>
+   <td style="text-align:right;"> 39.011925 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> transport_means </td>
+   <td style="text-align:left;"> school_bus </td>
+   <td style="text-align:right;"> 358 </td>
+   <td style="text-align:right;"> 60.988075 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> wkly_study_hours </td>
+   <td style="text-align:left;"> &lt; 5 </td>
+   <td style="text-align:right;"> 154 </td>
+   <td style="text-align:right;"> 26.235094 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> wkly_study_hours </td>
+   <td style="text-align:left;"> &gt; 10 </td>
+   <td style="text-align:right;"> 104 </td>
+   <td style="text-align:right;"> 17.717206 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> wkly_study_hours </td>
+   <td style="text-align:left;"> 5-10 </td>
+   <td style="text-align:right;"> 329 </td>
+   <td style="text-align:right;"> 56.047700 </td>
+  </tr>
+</tbody>
+</table>

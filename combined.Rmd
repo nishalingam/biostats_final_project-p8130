@@ -1,0 +1,1862 @@
+---
+title: "biostats_final_combined"
+author: "Miao Fu"
+date: "2023-12-07"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, message=FALSE,warning=FALSE)
+library(tidyverse)
+library(dplyr)
+library(kableExtra)
+library(knitr)
+library(patchwork)
+library(corrplot)
+library(gtsummary)
+library(tidyr)
+library(leaps)
+library(glmnet)
+library(olsrr)
+library(MASS)
+library(caret)
+library(modelr)
+library(mgcv)
+```
+
+# summary statistics
+
+```{r}
+# read datafile
+df = read_csv("data/Project_1_data.csv") |> 
+  janitor::clean_names() |>
+  mutate(
+    wkly_study_hours = ifelse(
+      wkly_study_hours == "10-May", "5-10", wkly_study_hours)
+  )|>
+  na.omit()
+
+# Transforming categorical variables to factors
+df_transformed <- df |> 
+  mutate(
+    gender = as.factor(gender),
+    ethnic_group = as.factor(ethnic_group),
+    parent_educ = factor(parent_educ,
+                         levels= c("some high school", "high school", "associate's degree", "some college", "bachelor's degree", "master's degree")),
+    lunch_type = as.factor(lunch_type),
+    test_prep = as.factor(test_prep),
+    parent_marital_status = as.factor(parent_marital_status),
+    practice_sport = factor(practice_sport,
+                            levels = c("never", "sometimes", "regularly")),
+    is_first_child = factor(is_first_child),
+    transport_means = as.factor(transport_means),
+    wkly_study_hours = factor(wkly_study_hours,
+                              levels = c("< 5", "5-10", "> 10"))
+  )
+
+# converting categorical variable to numeric variables
+df_num=df|>
+  mutate(
+    gender = as.numeric(factor(gender)),
+    ethnic_group = as.numeric(factor(ethnic_group)),
+    parent_educ = as.numeric(factor(
+      parent_educ,levels= c("some high school", "high school", 
+                            "associate's degree", "some college", 
+                            "bachelor's degree", "master's degree"))),
+    lunch_type = as.numeric(factor(lunch_type)), 
+    test_prep = as.numeric(factor(test_prep)),
+    parent_marital_status = as.numeric(factor(parent_marital_status)), 
+    practice_sport = as.numeric(
+      factor(practice_sport, levels = c("never", "sometimes", "regularly"))), 
+    is_first_child = as.numeric(factor(is_first_child)),
+    transport_means = as.numeric(as.factor(transport_means)),
+     wkly_study_hours = as.numeric(factor(wkly_study_hours,
+                              levels = c("< 5", "5-10", "> 10")))
+  )
+```
+
+```{r, include=FALSE}
+# categorical
+sum_stats_cat = function(data) {
+  results = list()
+  
+  for (col in colnames(data)) {
+    freq_table = table(data[[col]])
+    total = sum(freq_table)
+    percentages = freq_table / total * 100
+    
+    results[[col]] = as.data.frame(cbind(freq_table, percentages))
+    colnames(results[[col]])=c("count","percent")
+  }
+  
+  return(results)
+}
+
+results_cat=df|>
+  dplyr::select(-nr_siblings,-math_score,-reading_score,-writing_score)|>
+  sum_stats_cat()
+
+for (i in seq_along(results_cat)) {
+  print(results_cat[[i]])
+}
+
+# numeric
+sum_stats_numeric=function(x) {
+  results=list()
+  
+  for (col in colnames(x)){
+  table=tibble(
+  mean=mean(x[[col]],na.rm=TRUE),
+  median=median(x[[col]],na.rm=TRUE),
+  sd=sd(x[[col]],na.rm=TRUE),
+  minimum=min(x[[col]],na.rm=TRUE),
+  maximum=max(x[[col]],na.rm=TRUE),
+  q1=quantile(x[[col]], 0.25,na.rm=TRUE),
+  q3=quantile(x[[col]], 0.75,na.rm=TRUE))
+
+  results[[col]] = table
+  }
+  return(results)
+}
+
+results_num=df|>
+  dplyr::select(nr_siblings,math_score,reading_score,writing_score)|>
+  sum_stats_numeric()
+
+
+```
+
+## Categorical Variables
+
+```{r,include=TRUE,echo=FALSE}
+do.call(rbind, results_cat)|>
+  rownames_to_column(var="variable")|>
+  separate(variable,into=c("variable","category"),sep="\\.")|>
+  knitr::kable()
+```
+
+## Numeric Variables
+
+```{r,include=TRUE,echo=FALSE}
+do.call(rbind, results_num)|>
+  rownames_to_column(var = "variable")|>
+  knitr::kable()
+```
+
+## Histograms of all variables
+```{r}
+png("normality_check.png", width = 1200, height = 800)
+par(mfrow=c(3,5))
+barplot(table(df_transformed$math_score), main='Maths Score')
+barplot(table(df_transformed$writing_score), main='Writing Score')
+barplot(table(df_transformed$reading_score), main='Reading Score')
+barplot(table(df_transformed$gender), main='Gender')
+barplot(table(df_transformed$ethnic_group), main='Ethnic Group')
+barplot(table(df_transformed$lunch_type), main='Lunch Type')
+barplot(table(df_transformed$test_prep), main='Test Prep')
+barplot(table(df_transformed$parent_educ), main='Parent Education')
+barplot(table(df_transformed$parent_marital_status), main='Parent Marital Status')
+barplot(table(df_transformed$practice_sport), main='Practice Sports')
+barplot(table(df_transformed$is_first_child), main='First Child')
+barplot(table(df_transformed$nr_siblings), main='Siblings')
+barplot(table(df_transformed$transport_means), main='Transport Means')
+barplot(table(df_transformed$wkly_study_hours), main='Weekly Study Hours')
+dev.off()
+```
+
+# Test the transformation for outcome variables
+
+```{r}
+# Log, Sqrt, and Inverse transformation of outcomes
+df_eda=df|>
+  dplyr::select(math_score,writing_score,reading_score)|>
+  mutate(
+    lgMath=log(math_score),
+    sqMath=sqrt(math_score),
+    inMath=1/(math_score),
+    lgRead=log(reading_score),
+    sqRead=sqrt(reading_score),
+    inRead=1/(reading_score),
+    lgWrite=log(writing_score),
+    sqWrite=sqrt(writing_score),
+    inWrite=1/(writing_score),
+  )
+png("transformation_check.png", width = 1200, height = 800)
+par(mfrow=c(3,3))
+hist(df_eda$lgMath, main="Log(Maths Score)",xlab="Score")
+hist(df_eda$sqMath, main="sq(Maths Score)",xlab="Score")
+hist(df_eda$inMath, main="in(Maths Score)",xlab="Score")
+hist(df_eda$lgRead, main="Log(Reading Score)",xlab="Score")
+hist(df_eda$sqRead, main="sq(Reading Score)",xlab="Score")
+hist(df_eda$inRead, main="in(Reading Score)",xlab="Score")
+hist(df_eda$lgWrite, main="Log(Writing Score)",xlab="Score")
+hist(df_eda$sqWrite, main="sq(Writing Score)",xlab="Score")
+hist(df_eda$inWrite, main="in(Writing Score)",xlab="Score")
+dev.off()
+```
+
+No transformations improved the distribution. Original data were used.
+
+By plotting our the pairwise correlation between variables, there is apparent linearity among the three scores. Other correlation coefficients are relatively small, indicating weak linear relationship between the variables.
+
+```{r,include=TRUE,echo=FALSE}
+png("correlation_plot.png", width = 800, height = 800)
+df_num|>
+  cor()|>
+  corrplot(type = "upper", diag = FALSE)
+dev.off()
+```
+
+# MLR lm()
+
+```{r MLR models}
+# Build the MLR model for Math scores
+model_math <- lm(math_score ~ gender + ethnic_group + parent_educ + lunch_type + test_prep + parent_marital_status + practice_sport + is_first_child + nr_siblings + transport_means + wkly_study_hours, data = df_transformed)
+model_read <- lm(reading_score ~ gender + ethnic_group + parent_educ + lunch_type + test_prep + parent_marital_status + practice_sport + is_first_child + nr_siblings + transport_means + wkly_study_hours, data = df_transformed)
+model_write <- lm(writing_score ~ gender + ethnic_group + parent_educ + lunch_type + test_prep + parent_marital_status + practice_sport + is_first_child + nr_siblings + transport_means + wkly_study_hours, data = df_transformed)
+
+
+```
+
+## MLR - Math
+
+```{r math}
+summary(model_math)
+```
+
+### Coefficients and Significance Levels:
+
+-   Intercept (44.1006): The expected value of math_score when all other predictors are at their reference level or zero.
+-   gendermale (5.0855, p \< 0.001): Being male is associated with an average increase of 5.0855 points in math_score compared to females, holding all else constant. This is statistically significant.
+-   ethnic_group: Only ethnic_groupgroup E (11.1752, p \< 0.001) is significant, suggesting students in this group score higher in math compared to the reference group.
+-   parent_educ: The associate's degree (4.9058, p = 0.00584), bachelor's degree (6.6652, p = 0.00140), and master's degree (6.8096, p = 0.00760) are significant and associated with higher math scores compared to the reference category.
+-   lunch_typestandard (12.3539, p \< 0.001): Students with standard lunch type score significantly higher.
+-   test_prepnone (-4.7717, p \< 0.001): Not participating in test preparation is associated with lower math scores.
+-   parent_marital_status: Married (5.4805, p = 0.00075) and Widowed (7.7944, p = 0.04134) are associated with higher scores.
+-   practice_sport: Not significant.
+-   is_first_childyes: Not significant.
+-   nr_siblings (0.7403, p = 0.05461): A borderline significant positive association with math scores.
+-   transport_meansschool_bus: Not significant.
+-   wkly_study_hours: Studying 5-10 hours (3.5394, p = 0.00863) shows a significant positive effect.
+
+### Residuals:
+
+The spread of residuals suggests the errors are somewhat symmetrically distributed around the predicted values, which is a good sign for linear regression assumptions.
+
+### Model Fit:
+
+Residual Standard Error (13.52): Indicates the average difference between the observed values and the values predicted by the model.
+
+### R-squared:
+
+-   Multiple R-squared (0.3221): About 32.21% of the variability in math_score is explained by the model.
+-   Adjusted R-squared (0.2956): Adjusts the R-squared for the number of predictors, a better measure for models with multiple predictors.
+
+### Statistic & p-value
+
+F-statistic (12.18) and p-value (\< 2.2e-16): The model is statistically significant, meaning it performs better than a model with no predictors.
+
+## MLR - reading
+
+```{r}
+summary(model_read)
+```
+
+### Coefficients and Significance Levels:
+
+-   **Intercept (60.8028)**: The expected value of `reading_score` when all other predictors are at their reference level or zero.
+-   **gendermale (-7.6725, p \< 0.001)**: Being male is associated with an average decrease of 7.6725 points in `reading_score` compared to females, holding all else constant. This is statistically significant.
+-   **ethnic_group**: Only `ethnic_groupgroup E` (5.9165, p = 0.013402) is significant, suggesting students in this group score higher in reading compared to the reference group.
+-   **parent_educ**: The `associate's degree` (4.7948, p = 0.005776), `bachelor's degree` (7.3496, p = 0.000313), and `master's degree` (8.7149, p = 0.000479) are significant and associated with higher reading scores compared to the reference category.
+-   **lunch_typestandard (8.4374, p \< 0.001)**: Students with standard lunch type score significantly higher.
+-   **test_prepnone (-6.2822, p \< 0.001)**: Not participating in test preparation is associated with lower reading scores.
+-   **parent_marital_statusmarried (5.2439, p = 0.000950)**: Children of married parents score higher.
+-   **practice_sport**: Not significant.
+-   **is_first_childyes**: Not significant.
+-   **nr_siblings (0.3882, p = 0.301309)**: No significant association with reading scores.
+-   **transport_meansschool_bus**: Not significant.
+-   **wkly_study_hours**: Studying 5-10 hours (2.6835, p = 0.041104) shows a significant positive effect.
+
+### Residuals:
+
+The spread of residuals suggests the errors are somewhat symmetrically distributed around the predicted values, which is a good sign for linear regression assumptions.
+
+### Model Fit:
+
+-   **Residual Standard Error (13.2)**: Indicates the average difference between the observed values and the values predicted by the model.
+
+### R-squared:
+
+-   **Multiple R-squared (0.2709)**: About 27.09% of the variability in `reading_score` is explained by the model.
+-   **Adjusted R-squared (0.2425)**: Adjusts the R-squared for the number of predictors, a better measure for models with multiple predictors.
+
+### Statistic & p-value
+
+-   **F-statistic (9.527)** and **p-value (\< 2.2e-16)**: The model is statistically significant, meaning it performs better than a model with no predictors.
+
+## MLR - writing
+
+```{r}
+summary(model_write) 
+```
+
+### Coefficients and Significance Levels:
+
+-   **Intercept (57.808758)**: The expected value of `writing_score` when all other predictors are at their reference level or zero.
+-   **gendermale (-9.268845, p \< 0.001)**: Being male is associated with an average decrease of 9.268845 points in `writing_score` compared to females, holding all else constant. This is statistically significant.
+-   **ethnic_group**: `ethnic_groupgroup D` (5.010576, p = 0.016531) and `ethnic_groupgroup E` (6.018419, p = 0.008673) are significant, suggesting students in these groups score higher in writing compared to the reference group.
+-   **parent_educ**: `associate's degree` (6.130783, p = 0.000239), `some college` (4.338798, p = 0.010898), `bachelor's degree` (9.217680, p = 2.62e-06), and `master's degree` (11.712279, p = 1.10e-06) are significant and associated with higher writing scores compared to the reference category.
+-   **lunch_typestandard (9.390698, p \< 0.001)**: Students with standard lunch type score significantly higher.
+-   **test_prepnone (-8.754351, p \< 0.001)**: Not participating in test preparation is associated with lower writing scores.
+-   **parent_marital_statusmarried (5.246610, p = 0.000561)**: Children of married parents score higher.
+-   **practice_sport**: Not significant.
+-   **is_first_childyes**: Not significant.
+-   **nr_siblings (0.546033, p = 0.129340)**: No significant association with writing scores.
+-   **transport_meansschool_bus**: Not significant.
+-   **wkly_study_hours**: Studying 5-10 hours (2.802323, p = 0.026048) shows a significant positive effect.
+
+### Residuals:
+
+The spread of residuals suggests the errors are somewhat symmetrically distributed around the predicted values, which is a good sign for linear regression assumptions.
+
+### Model Fit:
+
+-   **Residual Standard Error (12.65)**: Indicates the average difference between the observed values and the values predicted by the model.
+
+### R-squared:
+
+-   **Multiple R-squared (0.3634)**: About 36.34% of the variability in `writing_score` is explained by the model.
+-   **Adjusted R-squared (0.3385)**: Adjusts the R-squared for the number of predictors, a better measure for models with multiple predictors.
+
+### Statistic & p-value
+
+-   **F-statistic (14.63)** and **p-value (\< 2.2e-16)**: The model is statistically significant, meaning it performs better than a model with no predictors.
+
+## Cleaned datasets - updated by Nisha
+
+```{r}
+set.seed(555)
+
+step_df = read_csv("data/Project_1_data.csv") |>
+  drop_na() |> janitor::clean_names() |>
+  mutate(
+    wkly_study_hours = ifelse(
+      wkly_study_hours == "10-May", "5-10", wkly_study_hours)
+  )|>
+  mutate(
+    gender = as.integer(factor(gender)),
+    ethnic_group = as.integer(factor(ethnic_group)),
+    parent_educ = as.integer(factor(
+      parent_educ,levels= c("some high school", "high school", 
+                            "associate's degree", "some college", 
+                            "bachelor's degree", "master's degree"))),
+    lunch_type = as.integer((factor(lunch_type))), 
+    test_prep = as.integer((factor(test_prep))),
+    parent_marital_status = as.integer((factor(parent_marital_status))), 
+    practice_sport = as.integer((factor(practice_sport, levels = c("never", "sometimes", "regularly")))), 
+    is_first_child = as.integer((factor(is_first_child))),
+    transport_means = as.integer((factor(transport_means))),
+     wkly_study_hours = as.integer((factor(wkly_study_hours,
+                              levels = c("< 5", "5-10", "> 10"))))
+  )
+
+math_df = dplyr::select(step_df, -c(reading_score, writing_score)) 
+
+reading_df = dplyr::select(step_df, -c(math_score, writing_score))
+
+writing_df = dplyr::select(step_df, -c(reading_score, math_score))
+```
+
+## Step-wise: Backwards Elimination
+
+Math Score
+
+```{r}
+mult.fit = lm(math_score ~ ., data = math_df)
+summary(mult.fit)
+
+# No Transport Means
+step1 = update(mult.fit, . ~ . -transport_means)
+summary(step1)
+
+# No Is First Child
+step2 = update(step1, . ~ . -is_first_child)
+summary(step2)
+
+# No Practice Sport
+step3 = update(step2, . ~ . -practice_sport)
+summary(step3)
+
+# No Parent Marital Status
+step4 = update(step3, . ~ . -parent_marital_status)
+summary(step4)
+
+# No Number of Siblings
+math_backward_manual_fit = update(step4, . ~ . -nr_siblings)
+summary(math_backward_manual_fit)
+mean(math_backward_manual_fit$residuals^2)
+
+
+# just use one function
+math_backward_func_fit = step(mult.fit, direction='backward')
+summary(math_backward_func_fit)
+mean(math_backward_manual_fit$residuals^2)
+
+```
+
+With manual elimination, the model we obtained was Math Score \~ Gender + Ethnic Group + Parent Education + Lunch Type + Test Prep + Weekly Study Hours.
+
+When using the single-function method, the model obtained with the lowest AIC was Math Score \~ Gender + Ethnic Group + Parent Education + Lunch Type + Test Prep + Number of Siblings + Weekly Study Hours. Both models' MSE are equal to each other, while the manually derived model had alower adjusted R-squared value by ~ 0.3 units.
+
+Reading Score
+
+```{r}
+mult.fit = lm(reading_score ~ ., data = reading_df)
+summary(mult.fit)
+
+# No Parent Marital Status
+step1 = update(mult.fit, . ~ . -parent_marital_status)
+summary(step1)
+
+# No Is First Child
+step2 = update(step1, . ~ . -is_first_child)
+summary(step2)
+
+# No Transport Means
+step3 = update(step2, . ~ . -transport_means)
+summary(step3)
+
+# No Number of Siblings
+step4 = update(step3, . ~ . -nr_siblings)
+summary(step4)
+
+# No Practice Sport
+step5 = update(step4, . ~ . -practice_sport)
+summary(step5)
+
+# No Weekly Study Hours
+reading_backward_manual_fit = update(step5, . ~ . -wkly_study_hours)
+summary(reading_backward_manual_fit)
+mean(reading_backward_manual_fit$residuals^2)
+
+# just use one function
+reading_backward_func_fit = step(mult.fit, direction='backward')
+summary(reading_backward_func_fit)
+mean(reading_backward_func_fit$residuals^2)
+
+```
+
+With manual elimination, the model we obtained was Reading Score \~ Gender + Ethnic Group + Parent Education + Lunch Type + Test Prep.
+
+When using the single-function method, the model obtained with the lowest AIC was Reading Score \~ Gender + Ethnic Group + Parent Education + Lunch Type + Test Prep. The one-function model had equal adjusted R-squared and MSE values.
+
+Writing Score
+
+```{r}
+mult.fit = lm(writing_score ~ ., data = writing_df)
+summary(mult.fit)
+
+# No Is First Child
+step1 = update(mult.fit, . ~ . -is_first_child)
+summary(step1)
+
+# No Practice Sport
+step2 = update(step1, . ~ . -practice_sport)
+summary(step2)
+
+# No Transport Means
+step3 = update(step2, . ~ . -transport_means)
+summary(step3)
+
+# No Parent Marital Status
+step4 = update(step3, . ~ . -parent_marital_status)
+summary(step4)
+
+# No Number of Siblings
+step5 = update(step4, . ~ . -nr_siblings)
+summary(step5)
+
+# No Weekly Study Hours
+writing_backward_manual_fit = update(step5, . ~ . -wkly_study_hours)
+summary(writing_backward_manual_fit)
+mean(writing_backward_manual_fit$residuals^2)
+
+
+# just use one function
+writing_backward_func_fit = step(mult.fit, direction='backward')
+summary(writing_backward_func_fit)
+mean(writing_backward_func_fit$residuals^2)
+
+```
+
+With manual elimination, the model we obtained was Writing Score \~ Gender + Ethnic Group + Parent Education + Lunch Type + Test Prep.
+
+When using the single-function method, the model obtained with the lowest AIC was Writing Score \~ Gender + Ethnic Group + Parent Education + Lunch Type + Test Prep + Weekly Study Hours. Both models had equal adjusted R-squared values and MSEs within 0.6 points of each other.
+
+## Step-wise: Forward Elimination
+
+Math Score
+
+```{r}
+
+mult.fit = lm(math_score ~ ., data = math_df)
+
+### Step 1:  Fit simple linear regressions for all variables,look for the variable with lowest p-value
+fit1 = lm(math_score ~ gender, data = step_df)
+summary(fit1)
+fit2 = lm(math_score ~ ethnic_group, data = step_df)
+summary(fit2)
+fit3 = lm(math_score ~ parent_educ, data = step_df)
+summary(fit3)
+fit4 = lm(math_score ~ lunch_type, data = step_df)
+summary(fit4)
+fit5 = lm(math_score ~ parent_marital_status, data = step_df)
+summary(fit5)
+fit6 = lm(math_score ~ practice_sport, data = step_df)
+summary(fit6)
+fit7 = lm(math_score ~ is_first_child, data = step_df)
+summary(fit7)
+fit8 = lm(math_score ~ nr_siblings, data = step_df)
+summary(fit8)
+fit9 = lm(math_score ~ transport_means, data = step_df)
+summary(fit9)
+fit10 = lm(math_score ~ wkly_study_hours, data = step_df)
+summary(fit10)
+fit11 = lm(math_score ~ test_prep, data = step_df)
+summary(fit11)
+
+# Enter first the one with the lowest p-value: Lunch Type
+forward1 = lm(math_score ~ lunch_type, data = step_df)
+first = summary(forward1)|> broom::tidy()
+
+
+### Step 2: Enter the one with the lowest p-value in the rest 
+fit1 = update(forward1, . ~ . +gender)
+summary(fit1)
+
+fit2 = update(forward1, . ~ . +ethnic_group)
+summary(fit2)
+
+fit3 = update(forward1, . ~ . +parent_educ)
+summary(fit3)
+
+fit4 = update(forward1, . ~ . +parent_marital_status)
+summary(fit4)
+
+fit5 = update(forward1, . ~ . +practice_sport)
+summary(fit5)
+
+fit6 = update(forward1, . ~ . +is_first_child)
+summary(fit6)
+
+fit7 = update(forward1, . ~ . +nr_siblings)
+summary(fit7)
+
+fit8 = update(forward1, . ~ . +transport_means)
+summary(fit8)
+
+fit9 = update(forward1, . ~ . +wkly_study_hours)
+summary(fit9)
+
+fit10 = update(forward1, . ~ . +test_prep)
+summary(fit10)
+
+
+# Enter the one with the lowest p-value: Ethnic Group
+forward2 = update(forward1, . ~ . +ethnic_group)
+summary(fit2)
+
+### Step 3: Enter the one with the lowest p-value in the rest 
+fit1 = update(forward2, . ~ . +gender)
+summary(fit1)
+
+fit2 = update(forward2, . ~ . +parent_educ)
+summary(fit2)
+
+fit3 = update(forward2, . ~ . +parent_marital_status)
+summary(fit3)
+
+fit4 = update(forward2, . ~ . +practice_sport)
+summary(fit4)
+
+fit5 = update(forward2, . ~ . +is_first_child)
+summary(fit5)
+
+fit6 = update(forward2, . ~ . +nr_siblings)
+summary(fit6)
+
+fit7 = update(forward2, . ~ . +transport_means)
+summary(fit7)
+
+fit8 = update(forward2, . ~ . +wkly_study_hours)
+summary(fit8)
+
+fit9 = update(forward2, . ~ . +test_prep)
+summary(fit9)
+
+
+# Enter the one with the lowest p-value: Test Prep
+forward3 = update(forward2, . ~ . + test_prep)
+summary(forward3)
+
+### Step 4: Enter the one with the lowest p-value in the rest 
+fit1 = update(forward3, . ~ . +gender)
+summary(fit1)
+
+fit2 = update(forward3, . ~ . +parent_educ)
+summary(fit2)
+
+fit3 = update(forward3, . ~ . +parent_marital_status)
+summary(fit3)
+
+fit4 = update(forward3, . ~ . +practice_sport)
+summary(fit4)
+
+fit5 = update(forward3, . ~ . +is_first_child)
+summary(fit5)
+
+fit6 = update(forward3, . ~ . +nr_siblings)
+summary(fit6)
+
+fit7 = update(forward3, . ~ . +transport_means)
+summary(fit7)
+
+fit8 = update(forward3, . ~ . +wkly_study_hours)
+summary(fit8)
+
+
+# Enter the one with the lowest p-value: Gender
+forward4 = update(forward3, . ~ . + gender)
+summary(forward4)
+
+### Step 5: Enter the one with the lowest p-value in the rest 
+fit1 = update(forward4, . ~ . +parent_educ)
+summary(fit1)
+
+fit2 = update(forward4, . ~ . +parent_marital_status)
+summary(fit2)
+
+fit3 = update(forward4, . ~ . +practice_sport)
+summary(fit3)
+
+fit4 = update(forward4, . ~ . +is_first_child)
+summary(fit4)
+
+fit5 = update(forward4, . ~ . +nr_siblings)
+summary(fit5)
+
+fit6 = update(forward4, . ~ . +transport_means)
+summary(fit6)
+
+fit7 = update(forward4, . ~ . +wkly_study_hours)
+summary(fit7)
+
+# Enter the one with the lowest p-value: Parent Education
+forward5 = update(forward4, . ~ . + parent_educ)
+summary(forward5)
+
+### Step 6: Enter the one with the lowest p-value in the rest 
+fit1 = update(forward5, . ~ . +parent_marital_status)
+summary(fit1)
+
+fit2 = update(forward5, . ~ . +practice_sport)
+summary(fit2)
+
+fit3 = update(forward5, . ~ . +is_first_child)
+summary(fit3)
+
+fit4 = update(forward5, . ~ . +nr_siblings)
+summary(fit4)
+
+fit5 = update(forward5, . ~ . +transport_means)
+summary(fit5)
+
+fit6 = update(forward5, . ~ . +wkly_study_hours)
+summary(fit6)
+
+
+# Enter the one with the lowest p-value: Weekly Study Hours
+forward6 = update(forward5, . ~ . + wkly_study_hours)
+summary(forward6)
+
+### Step 7: Enter the one with the lowest p-value in the rest 
+fit1 = update(forward6, . ~ . +parent_marital_status)
+summary(fit1)
+
+fit2 = update(forward6, . ~ . +practice_sport)
+summary(fit2)
+
+fit3 = update(forward6, . ~ . +is_first_child)
+summary(fit3)
+
+fit4 = update(forward6, . ~ . +nr_siblings)
+summary(fit4)
+
+fit5 = update(forward6, . ~ . +transport_means)
+summary(fit5)
+
+
+# P-value of all new added variables are larger than 0.05, which means that they 
+# are not significant predictor, and we stop here.
+
+math_forward_manual_fit = lm(math_score ~ lunch_type + ethnic_group + test_prep + 
+    gender + parent_educ + wkly_study_hours, data = step_df)
+summary(math_forward_manual_fit)
+mean(math_forward_manual_fit$residuals^2)
+
+
+# fit using one function
+intercept_only <- lm (math_score ~ 1, data = math_df)
+math_forward_func_fit = step(intercept_only, direction = "forward", scope = formula(mult.fit))
+summary(math_forward_func_fit)
+mean(math_forward_func_fit$residuals^2)
+
+```
+
+The model we obtained is Math Score \~ Lunch Type + Ethnic Group + Test Prep + Gender + Parent Education + Weekly Study Hours.
+
+When using the single-function method, the model obtained with the lowest AIC was Math Score \~ Lunch Type + Ethnic Group + Test Prep + Gender + Parent Education + Weekly Study Hours + Number of Siblings. This method resulted in a model that had a slightly lower MSE by a difference of about 1 point and approximately the same adjusted R-squared values (difference of < 0.3 units).
+
+Reading Score
+
+```{r}
+mult.fit = lm(reading_score ~ ., data = reading_df)
+
+### Step 1:  Fit simple linear regressions for all variables,look for the variable with lowest p-value
+fit1 = lm(reading_score ~ gender, data = step_df)
+summary(fit1)
+fit2 = lm(reading_score ~ ethnic_group, data = step_df)
+summary(fit2)
+fit3 = lm(reading_score ~ parent_educ, data = step_df)
+summary(fit3)
+fit4 = lm(reading_score ~ lunch_type, data = step_df)
+summary(fit4)
+fit5 = lm(reading_score ~ parent_marital_status, data = step_df)
+summary(fit5)
+fit6 = lm(reading_score ~ practice_sport, data = step_df)
+summary(fit6)
+fit7 = lm(reading_score ~ is_first_child, data = step_df)
+summary(fit7)
+fit8 = lm(reading_score ~ nr_siblings, data = step_df)
+summary(fit8)
+fit9 = lm(reading_score ~ transport_means, data = step_df)
+summary(fit9)
+fit10 = lm(reading_score ~ wkly_study_hours, data = step_df)
+summary(fit10)
+fit11 = lm(reading_score ~ test_prep, data = step_df)
+summary(fit11)
+
+# Enter first the one with the lowest p-value: Lunch Type
+forward1 = lm(reading_score ~ lunch_type, data = step_df)
+summary(forward1)
+
+
+### Step 2: Enter the one with the lowest p-value in the rest 
+fit1 = update(forward1, . ~ . +gender)
+summary(fit1)
+
+fit2 = update(forward1, . ~ . +ethnic_group)
+summary(fit2)
+
+fit3 = update(forward1, . ~ . +parent_educ)
+summary(fit3)
+
+fit4 = update(forward1, . ~ . +parent_marital_status)
+summary(fit4)
+
+fit5 = update(forward1, . ~ . +practice_sport)
+summary(fit5)
+
+fit6 = update(forward1, . ~ . +is_first_child)
+summary(fit6)
+
+fit7 = update(forward1, . ~ . +nr_siblings)
+summary(fit7)
+
+fit8 = update(forward1, . ~ . +transport_means)
+summary(fit8)
+
+fit9 = update(forward1, . ~ . +wkly_study_hours)
+summary(fit9)
+
+fit10 = update(forward1, . ~ . +test_prep)
+summary(fit10)
+
+
+# Enter the one with the lowest p-value: Gender
+forward2 = update(forward1, . ~ . +gender)
+summary(fit2)
+
+### Step 3: Enter the one with the lowest p-value in the rest 
+fit1 = update(forward2, . ~ . +ethnic_group)
+summary(fit1)
+
+fit2 = update(forward2, . ~ . +parent_educ)
+summary(fit2)
+
+fit3 = update(forward2, . ~ . +parent_marital_status)
+summary(fit3)
+
+fit4 = update(forward2, . ~ . +practice_sport)
+summary(fit4)
+
+fit5 = update(forward2, . ~ . +is_first_child)
+summary(fit5)
+
+fit6 = update(forward2, . ~ . +nr_siblings)
+summary(fit6)
+
+fit7 = update(forward2, . ~ . +transport_means)
+summary(fit7)
+
+fit8 = update(forward2, . ~ . +wkly_study_hours)
+summary(fit8)
+
+fit9 = update(forward2, . ~ . +test_prep)
+summary(fit9)
+
+
+# Enter the one with the lowest p-value: Test Prep
+forward3 = update(forward2, . ~ . + test_prep)
+summary(forward3)
+
+### Step 4: Enter the one with the lowest p-value in the rest 
+fit1 = update(forward3, . ~ . +ethnic_group)
+summary(fit1)
+
+fit2 = update(forward3, . ~ . +parent_educ)
+summary(fit2)
+
+fit3 = update(forward3, . ~ . +parent_marital_status)
+summary(fit3)
+
+fit4 = update(forward3, . ~ . +practice_sport)
+summary(fit4)
+
+fit5 = update(forward3, . ~ . +is_first_child)
+summary(fit5)
+
+fit6 = update(forward3, . ~ . +nr_siblings)
+summary(fit6)
+
+fit7 = update(forward3, . ~ . +transport_means)
+summary(fit7)
+
+fit8 = update(forward3, . ~ . +wkly_study_hours)
+summary(fit8)
+
+
+# Enter the one with the lowest p-value: Parent Education
+forward4 = update(forward3, . ~ . + parent_educ)
+summary(forward4)
+
+### Step 5: Enter the one with the lowest p-value in the rest 
+fit1 = update(forward4, . ~ . +ethnic_group)
+summary(fit1)
+
+fit2 = update(forward4, . ~ . +parent_marital_status)
+summary(fit2)
+
+fit3 = update(forward4, . ~ . +practice_sport)
+summary(fit3)
+
+fit4 = update(forward4, . ~ . +is_first_child)
+summary(fit4)
+
+fit5 = update(forward4, . ~ . +nr_siblings)
+summary(fit5)
+
+fit6 = update(forward4, . ~ . +transport_means)
+summary(fit6)
+
+fit7 = update(forward4, . ~ . +wkly_study_hours)
+summary(fit7)
+
+# Enter the one with the lowest p-value: Ethnic Group
+forward5 = update(forward4, . ~ . + ethnic_group)
+summary(forward5)
+
+### Step 6: Enter the one with the lowest p-value in the rest 
+fit1 = update(forward5, . ~ . +parent_marital_status)
+summary(fit1)
+
+fit2 = update(forward5, . ~ . +practice_sport)
+summary(fit2)
+
+fit3 = update(forward5, . ~ . +is_first_child)
+summary(fit3)
+
+fit4 = update(forward5, . ~ . +nr_siblings)
+summary(fit4)
+
+fit5 = update(forward5, . ~ . +transport_means)
+summary(fit5)
+
+fit6 = update(forward5, . ~ . +wkly_study_hours)
+summary(fit6)
+
+# P-value of all new added variables are larger than 0.05, which means that they 
+# are not significant predictor, and we stop here.
+
+# The model we obtained is Reading Score ~ Lunch Type + Gender + Test Prep + 
+# Parent Education + Ethnic Group
+
+reading_forward_manual_fit = lm(reading_score ~ lunch_type + gender + test_prep + 
+                      parent_educ + ethnic_group, data = step_df)
+summary(reading_forward_manual_fit)
+mean(reading_forward_manual_fit$residuals^2)
+
+
+# fit using one function
+intercept_only <- lm (reading_score ~ 1, data = reading_df)
+reading_forward_func_fit = step(intercept_only, direction = "forward", scope = formula(mult.fit))
+summary(reading_forward_func_fit)
+mean(reading_forward_func_fit$residuals^2)
+
+
+```
+
+The model we obtained is Reading Score \~ Lunch Type + Gender + Test Prep + Parent Education + Ethnic Group.
+
+When using the single-function method, the model obtained with the lowest AIC was Reading Score \~ Lunch Type + Gender + Test Prep + Parent Education + Ethnic Group. Both models have equal MSE and adjusted R-squared values.
+
+Writing Score
+
+```{r}
+mult.fit = lm(writing_score ~ ., data = writing_df)
+
+### Step 1:  Fit simple linear regressions for all variables,look for the variable with lowest p-value
+fit1 = lm(writing_score ~ gender, data = step_df)
+summary(fit1)
+fit2 = lm(writing_score ~ ethnic_group, data = step_df)
+summary(fit2)
+fit3 = lm(writing_score ~ parent_educ, data = step_df)
+summary(fit3)
+fit4 = lm(writing_score ~ lunch_type, data = step_df)
+summary(fit4)
+fit5 = lm(writing_score ~ parent_marital_status, data = step_df)
+summary(fit5)
+fit6 = lm(writing_score ~ practice_sport, data = step_df)
+summary(fit6)
+fit7 = lm(writing_score ~ is_first_child, data = step_df)
+summary(fit7)
+fit8 = lm(writing_score ~ nr_siblings, data = step_df)
+summary(fit8)
+fit9 = lm(writing_score ~ transport_means, data = step_df)
+summary(fit9)
+fit10 = lm(writing_score ~ wkly_study_hours, data = step_df)
+summary(fit10)
+fit11 = lm(writing_score ~ test_prep, data = step_df)
+summary(fit11)
+
+# Enter first the one with the lowest p-value: Gender
+forward1 = lm(writing_score ~ gender, data = step_df)
+summary(forward1)
+
+
+### Step 2: Enter the one with the lowest p-value in the rest 
+fit1 = update(forward1, . ~ . +ethnic_group)
+summary(fit1)
+
+fit2 = update(forward1, . ~ . +parent_educ)
+summary(fit2)
+
+fit3 = update(forward1, . ~ . +parent_marital_status)
+summary(fit3)
+
+fit4 = update(forward1, . ~ . +practice_sport)
+summary(fit4)
+
+fit5 = update(forward1, . ~ . +is_first_child)
+summary(fit5)
+
+fit6 = update(forward1, . ~ . +nr_siblings)
+summary(fit6)
+
+fit7 = update(forward1, . ~ . +transport_means)
+summary(fit7)
+
+fit8 = update(forward1, . ~ . +wkly_study_hours)
+summary(fit8)
+
+fit9 = update(forward1, . ~ . +test_prep)
+summary(fit9)
+
+fit10 = update(forward1, . ~ . +lunch_type)
+summary(fit10)
+
+
+# Enter the one with the lowest p-value: Lunch Type
+forward2 = update(forward1, . ~ . +lunch_type)
+summary(fit2)
+
+### Step 3: Enter the one with the lowest p-value in the rest 
+fit1 = update(forward1, . ~ . +ethnic_group)
+summary(fit1)
+
+fit2 = update(forward1, . ~ . +parent_educ)
+summary(fit2)
+
+fit3 = update(forward1, . ~ . +parent_marital_status)
+summary(fit3)
+
+fit4 = update(forward1, . ~ . +practice_sport)
+summary(fit4)
+
+fit5 = update(forward1, . ~ . +is_first_child)
+summary(fit5)
+
+fit6 = update(forward1, . ~ . +nr_siblings)
+summary(fit6)
+
+fit7 = update(forward1, . ~ . +transport_means)
+summary(fit7)
+
+fit8 = update(forward1, . ~ . +wkly_study_hours)
+summary(fit8)
+
+fit9 = update(forward1, . ~ . +test_prep)
+summary(fit9)
+
+# Enter the one with the lowest p-value: Test Prep
+forward3 = update(forward2, . ~ . + test_prep)
+summary(forward3)
+
+### Step 4: Enter the one with the lowest p-value in the rest 
+fit1 = update(forward3, . ~ . +ethnic_group)
+summary(fit1)
+
+fit2 = update(forward3, . ~ . +parent_educ)
+summary(fit2)
+
+fit3 = update(forward3, . ~ . +parent_marital_status)
+summary(fit3)
+
+fit4 = update(forward3, . ~ . +practice_sport)
+summary(fit4)
+
+fit5 = update(forward3, . ~ . +is_first_child)
+summary(fit5)
+
+fit6 = update(forward3, . ~ . +nr_siblings)
+summary(fit6)
+
+fit7 = update(forward3, . ~ . +transport_means)
+summary(fit7)
+
+fit8 = update(forward3, . ~ . +wkly_study_hours)
+summary(fit8)
+
+
+# Enter the one with the lowest p-value: Parent Education
+forward4 = update(forward3, . ~ . + parent_educ)
+summary(forward4)
+
+### Step 5: Enter the one with the lowest p-value in the rest 
+fit1 = update(forward4, . ~ . +ethnic_group)
+summary(fit1)
+
+fit2 = update(forward4, . ~ . +parent_marital_status)
+summary(fit2)
+
+fit3 = update(forward4, . ~ . +practice_sport)
+summary(fit3)
+
+fit4 = update(forward4, . ~ . +is_first_child)
+summary(fit4)
+
+fit5 = update(forward4, . ~ . +nr_siblings)
+summary(fit5)
+
+fit6 = update(forward4, . ~ . +transport_means)
+summary(fit6)
+
+fit7 = update(forward4, . ~ . +wkly_study_hours)
+summary(fit7)
+
+# Enter the one with the lowest p-value: Ethnic Group
+forward5 = update(forward4, . ~ . + ethnic_group)
+summary(forward5)
+
+### Step 6: Enter the one with the lowest p-value in the rest 
+fit1 = update(forward5, . ~ . +parent_marital_status)
+summary(fit1)
+
+fit2 = update(forward5, . ~ . +practice_sport)
+summary(fit2)
+
+fit3 = update(forward5, . ~ . +is_first_child)
+summary(fit3)
+
+fit4 = update(forward5, . ~ . +nr_siblings)
+summary(fit4)
+
+fit5 = update(forward5, . ~ . +transport_means)
+summary(fit5)
+
+fit6 = update(forward5, . ~ . +wkly_study_hours)
+summary(fit6)
+
+# P-value of all new added variables are larger than 0.05, which means that they 
+# are not significant predictor, and we stop here.
+
+# The model we obtained is Writing Score ~ Gender + Lunch Type + Test Prep +
+# Parent Education + Ethnic Group
+
+writing_forward_manual_fit = lm(writing_score ~ gender + lunch_type + test_prep + 
+                      parent_educ + ethnic_group, data = step_df)
+summary(writing_forward_manual_fit)
+mean(writing_forward_manual_fit$residuals^2)
+
+
+# fit using one function
+intercept_only <- lm (writing_score ~ 1, data = writing_df)
+writing_forward_func_fit = step(intercept_only, direction = "forward", scope = formula(mult.fit))
+summary(writing_forward_func_fit)
+mean(writing_forward_func_fit$residuals^2)
+
+```
+
+The model we obtained is Writing Score \~ Lunch Type + Ethnic Group + Test Prep + Gender + Parent Education + Weekly Study Hours.
+
+When using the single-function method, the model obtained with the lowest AIC was Writing Score \~ Gender + Lunch Type + Test Prep + Parent Education + Ethnic Group + Weekly Study Hours. Both models had approximately equal adjusted R-squared values, while the MSE of the one-line model was about 3.5 units lower.
+
+
+## Criteria-based approach - Adjusted R\^2, Cp, BIC
+
+(Note: BIC has a larger penalty, leading to less predictors present within the model.)
+
+Math Score
+
+```{r}
+# perform best subset selection
+best_subset <- regsubsets(math_score ~ ., math_df, nvmax = 11)
+results <- summary(best_subset)
+
+# extract and plot results
+tibble(predictors = 1:11,
+       adj_R2 = results$adjr2,
+       Cp = results$cp,
+       BIC = results$bic) |>
+  gather(statistic, value, -predictors) |>
+  ggplot(aes(predictors, value, color = statistic)) +
+  geom_line(show.legend = F) +
+  geom_point(show.legend = F) +
+  facet_wrap(~ statistic, scales = "free")
+
+results$which[7,]|>print()
+math_criteria_fit = lm(math_score ~ gender + ethnic_group + parent_educ + lunch_type+ test_prep + nr_siblings, wkly_study_hours, data = step_df)
+
+ggsave("math_criteria_plots.png")
+```
+
+To predict math score, the adjusted R\^2 statistic, Cp, and BIC plots in combination show that a 7-variable model is optimal. The predictors selected are: gender, ethnic_group, parent_educ, lunch_type, test_prep, nr_siblings, and wkly study_hours.
+
+Reading Score
+
+```{r}
+best_subset <- regsubsets(reading_score ~ ., reading_df, nvmax = 11)
+results <- summary(best_subset)
+
+tibble(predictors = 1:11,
+       adj_R2 = results$adjr2,
+       Cp = results$cp,
+       BIC = results$bic) %>%
+  gather(statistic, value, -predictors) %>%
+  ggplot(aes(predictors, value, color = statistic)) +
+  geom_line(show.legend = F) +
+  geom_point(show.legend = F) +
+  facet_wrap(~ statistic, scales = "free")
+
+results$which[5,]|>print()
+reading_criteria_fit = lm(reading_score ~ gender + ethnic_group + parent_educ + lunch_type+ test_prep, data = step_df)
+
+ggsave("reading_criteria_plots.png")
+
+```
+
+To predict reading score, the adjusted R\^2 statistic and Cp and BIC plots shows that a 5-variable model is optimal. The predictors selected are: gender, ethnic_group, parent_educ, lunch_type, test_prep.
+
+Writing Score
+
+```{r}
+best_subset <- regsubsets(writing_score ~ ., writing_df, nvmax = 11)
+results <- summary(best_subset)
+
+tibble(predictors = 1:11,
+       adj_R2 = results$adjr2,
+       Cp = results$cp,
+       BIC = results$bic) %>%
+  gather(statistic, value, -predictors) %>%
+  ggplot(aes(predictors, value, color = statistic)) +
+  geom_line(show.legend = F) +
+  geom_point(show.legend = F) +
+  facet_wrap(~ statistic, scales = "free")
+
+results$which[5,] |>print()
+writing_criteria_fit = lm(writing_score ~ gender + ethnic_group + parent_educ + lunch_type + test_prep, data = step_df)
+
+ggsave("writing_criteria_plots.png")
+
+```
+
+To predict writing score, the adjusted R\^2, Cp, and BIC statistics show that a 5-variable model is optimal.\
+The predictors selected are: gender, ethnic_group, parent_educ, lunch_type, test_prep
+
+Limitation: noting that the plots maximum and minimum are not that obvious.
+
+## LASSO approach -
+
+Maths score:
+
+```{r}
+# Find the best lambda
+math_lasso=step_df|>
+  dplyr::select(-reading_score,-writing_score)|>
+  dplyr::select(math_score,everything())
+
+lambda_seq = 10^seq(-3, 0, by = .1)
+set.seed(1)
+cv_object = cv.glmnet(as.matrix(math_lasso[2:12]),math_lasso$math_score, lambda = lambda_seq, nfolds = 5)
+
+tibble(lambda = cv_object$lambda,
+       mean_cv_error = cv_object$cvm) |>
+  ggplot(aes(x = lambda, y = mean_cv_error)) +
+  geom_point()
+
+# Use the best lambda to model
+math_model_lasso=glmnet(as.matrix(math_lasso[2:12]),math_lasso$math_score,lambda=cv_object$lambda.min)
+coef(math_model_lasso)
+```
+
+Reading score:
+
+```{r}
+read_lasso=step_df|>
+  dplyr::select(-math_score,-writing_score)|>
+  dplyr::select(reading_score,everything())
+
+lambda_seq = 10^seq(-3, 0, by = .1)
+set.seed(2)
+cv_object = cv.glmnet(as.matrix(read_lasso[2:12]),read_lasso$reading_score, lambda = lambda_seq, nfolds =5)
+
+tibble(lambda = cv_object$lambda,
+       mean_cv_error = cv_object$cvm) |>
+  ggplot(aes(x = lambda, y = mean_cv_error)) +
+  geom_point()
+
+# Use the best lambda to model
+read_model_lasso=glmnet(as.matrix(read_lasso[2:12]),read_lasso$reading_score,lambda=cv_object$lambda.min)
+coef(read_model_lasso)
+```
+
+Writing score:
+
+```{r}
+write_lasso=df_num|>
+  dplyr::select(-reading_score,-math_score)|>
+  dplyr::select(writing_score,everything())
+
+lambda_seq = 10^seq(-3, 0, by = .1)
+set.seed(2)
+cv_object = cv.glmnet(as.matrix(write_lasso[2:12]),write_lasso$writing_score, lambda = lambda_seq, nfolds =5)
+
+tibble(lambda = cv_object$lambda,
+       mean_cv_error = cv_object$cvm) |>
+  ggplot(aes(x = lambda, y = mean_cv_error)) +
+  geom_point()
+
+# Use the best lambda to model
+write_model_lasso=glmnet(as.matrix(write_lasso[2:12]),write_lasso$writing_score,lambda=cv_object$lambda.min)
+coef(write_model_lasso)
+```
+
+# Cross Validation
+
+Here are the summary of all the models that have been created in this project.
+
+```{r}
+# Clean out the variables used in stepwise analysis
+var_names = step_df |> dplyr::select(!ends_with("score"))  |> colnames()
+
+math_theoretical_fit = lm(math_score ~ gender + ethnic_group + parent_educ + lunch_type + test_prep + parent_marital_status + practice_sport + is_first_child + nr_siblings + transport_means + wkly_study_hours, data = step_df)
+
+reading_theoretical_fit = lm(reading_score ~ gender + ethnic_group + parent_educ + lunch_type + test_prep + parent_marital_status + practice_sport + is_first_child + nr_siblings + transport_means + wkly_study_hours, data = step_df)
+
+writing_theoretical_fit = lm(writing_score ~ gender + ethnic_group + parent_educ + lunch_type + test_prep + parent_marital_status + practice_sport + is_first_child + nr_siblings + transport_means + wkly_study_hours, data = step_df)
+
+models_report_df = rbind(
+  math_theoretical_fit,
+  math_backward_manual_fit,
+  math_backward_func_fit,
+  math_forward_manual_fit,
+  math_forward_func_fit,
+  math_criteria_fit,
+  
+  reading_theoretical_fit,
+  reading_backward_manual_fit,
+  reading_backward_func_fit,
+  reading_forward_manual_fit,
+  reading_forward_func_fit,
+  reading_criteria_fit,
+ 
+  writing_theoretical_fit,
+  writing_backward_manual_fit,
+  writing_backward_func_fit,
+  writing_forward_manual_fit,
+  writing_forward_func_fit,
+  writing_criteria_fit)
+
+models_report_df_rownames = models_report_df |> row.names()
+models_report_df_colnames = models_report_df |> colnames()
+
+models_report_df = models_report_df |> 
+  as.data.frame() |>
+  cbind(models_report_df_rownames) |>
+  rename(model_name = models_report_df_rownames) |>
+  dplyr::select( model_name, coefficients, terms) |>
+  mutate(coefficients = map(coefficients, \(coef) map(coef, ~ "X"))) |>
+  unnest_wider(coefficients) |>
+  mutate(
+    subject = map(model_name, \(i) str_extract(i, "^[:alpha:]+")),
+    method = map(model_name, \(i) str_extract(i, "(?<=[:alpha:]_).+(?=_fit)"))
+  ) |>
+  dplyr::select(-model_name) |>
+  relocate(subject,method, terms)
+
+models_report_df |>
+  dplyr::select(-terms) |>
+  knitr::kable()%>%
+kable_styling("striped", full_width = F) %>%
+  row_spec(0, angle = -90)
+```
+
+We will be performing cross validation to select the best model resulted from the models above.
+
+## Method from the lecture code
+
+```{r}
+set.seed(1)
+# Use 5-fold validation and create the training sets
+train = trainControl(method = "cv", number = 5)
+
+cv_lecture_df = models_report_df |>
+  dplyr::select(subject, method, terms) |>
+  mutate(model = map(terms, \(formula) train(as.formula(formula),
+                   data = step_df,
+                   trControl = train,
+                   method = 'lm',
+                   na.action = na.pass)),
+         RMSE = map(model, \(i) i$results$RMSE),
+         model = map(model, \(i) i$finalModel)
+         )
+```
+
+## Method using crossv_mc
+
+```{r warning=TRUE}
+set.seed(1)
+cv_ds_df = 
+  modelr::crossv_mc(step_df, 100) |>
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble)) |>
+  mutate(
+    fits = map(train, \(i) cv_lecture_df |> transpose() |> as.list())) |>
+  unnest(fits) |>
+  unnest_wider(fits, strict = TRUE, names_repair = "minimal") |>
+  mutate(
+    cv_model = map2(train, terms, \(df, i) lm(as.formula(i), data = df)),
+    cv_rmse = map2(cv_model, test, \(mod, df) rmse(mod,df)),
+    cv_rmse = as.numeric(cv_rmse),
+    method = as.character(method)
+  )
+```
+
+Notice how `practice_sport` and `transport_means` are not selected in any of the model selections methods. This will be reported at the effect modifier section.
+
+## Cross Validation - Math
+
+### Method from the lecture codes
+
+```{r}
+math_caret_df = cv_lecture_df |>
+  filter(subject == "math")
+
+math_caret_df |>
+  dplyr::select(method, RMSE) |>
+  knitr::kable()
+
+math_caret_df = math_caret_df |>
+  filter(RMSE == min(math_caret_df$RMSE |> unlist()))
+
+# Only one value
+math_best_fit = math_caret_df$model[[1]]
+```
+
+The model with the best RMSE for Math is `r paste(math_caret_df$terms)`, which uses `r paste(math_caret_df$method)` as a method of approach.
+
+### Method using crossv_mc
+
+```{r}
+cv_ds_df |> 
+  filter(subject == "math") |> 
+  group_by(method) |>
+  ggplot(aes(x = method, y = cv_rmse)) +
+  geom_violin()+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+```{r}
+cv_ds_df |> 
+  filter(subject == "math") |> 
+  group_by(method) |>
+  summarize(average_rmse = mean(cv_rmse)) |>
+  knitr::kable()
+```
+
+We noticed that the the best model is the one that uses forward elimination with one line code and backward elimination with one line code. The model is `r models_report_df |> filter(subject == "math", method == "forward_func") |> pull(terms) |> paste()`
+
+## Cross Validation - Reading
+
+### Method from the lecture codes
+
+```{r}
+reading_caret_df = cv_lecture_df |>
+  filter(subject == "reading")
+
+reading_caret_df |>
+  dplyr::select(method, RMSE) |>
+  knitr::kable()
+
+reading_caret_df = reading_caret_df |>
+  filter(RMSE == min(reading_caret_df$RMSE |> unlist()))
+
+# Only one value
+reading_best_fit = reading_caret_df$model[[1]]
+```
+
+The model with the best MSE for Reading is `r paste(reading_caret_df$terms)`, which uses `r paste(reading_caret_df$method)` as a method of approach.
+
+### Method using crossv_mc
+
+```{r}
+cv_ds_df |> 
+  filter(subject == "reading") |> 
+  group_by(method) |>
+  ggplot(aes(x = method, y = cv_rmse)) +
+  geom_violin()+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+```{r}
+cv_ds_df |> 
+  filter(subject == "reading") |> 
+  group_by(method) |>
+  summarize(average_rmse = mean(cv_rmse)) |>
+  knitr::kable()
+```
+
+We noticed that the the best model is the model that is picked by forward and backward elimination method and criterion based approach. The model is `r models_report_df |> filter(subject == "reading", method == "forward_func") |> pull(terms) |> paste()`
+
+## Cross Validation - Writing
+
+### Method from the lecture codes
+
+```{r}
+writing_caret_df = cv_lecture_df |>
+  filter(subject == "writing")
+
+writing_caret_df |>
+  dplyr::select(method, RMSE) |>
+  knitr::kable()
+
+writing_caret_df = writing_caret_df |>
+  filter(RMSE == min(writing_caret_df$RMSE |> unlist()))
+
+# Only one value
+writing_best_fit = writing_caret_df$model[[1]]
+```
+
+The model with the best RMSE for Writing is `r paste(writing_caret_df$terms)`, which uses `r paste(writing_caret_df$method)` as a method of approach.
+
+### Method using crossv_mc
+
+```{r warning=TRUE}
+cv_ds_df |> 
+  filter(subject == "writing") |> 
+  group_by(method) |>
+  ggplot(aes(x = method, y = cv_rmse)) +
+  geom_violin()+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+```{r}
+cv_ds_df |> 
+  filter(subject == "writing") |> 
+  group_by(method) |>
+  summarize(average_rmse = mean(cv_rmse)) |>
+  knitr::kable()
+```
+
+We noticed that the the best model is the one that uses forward elimination with one line code and backward elimination with one line code. The model is `r models_report_df |> filter(subject == "writing", method == "forward_func") |> pull(terms) |> paste()`
+
+# Effect Modifier
+
+```{r}
+math_best_cv_terms = models_report_df |> filter(subject == "math", method == "forward_func") |> pull(terms) |> paste()
+reading_best_cv_terms = models_report_df |> filter(subject == "reading", method == "forward_func") |> pull(terms) |> paste()
+writing_best_cv_terms = models_report_df |> filter(subject == "writing", method == "forward_func") |> pull(terms) |> paste()
+```
+
+```{r math_interaction_table}
+lm(as.formula(gsub("\\+", "*", writing_best_cv_terms)), data = step_df) |> 
+  anova() |>
+  broom::tidy() |> 
+  filter(str_detect(term, ":")) |>
+  filter(p.value < 0.05) |>
+  knitr::kable(caption = "Math: Effect Modifiers")
+```
+
+```{r reading_interaction_table}
+lm(as.formula(gsub("\\+", "*", writing_best_cv_terms)), data = step_df) |> 
+  anova() |>
+  broom::tidy() |> 
+  filter(str_detect(term, ":")) |>
+  filter(p.value < 0.05) |>
+  knitr::kable(caption = "Math: Effect Modifiers")
+```
+
+```{r writing_interaction_table}
+lm(as.formula(gsub("\\+", "*", writing_best_cv_terms)), data = step_df) |> 
+  anova() |>
+  broom::tidy() |> 
+  filter(str_detect(term, ":")) |>
+  filter(p.value < 0.05) |>
+  knitr::kable(caption = "Math: Effect Modifiers")
+```
+
+```{r math_interaction_found}
+lm(math_score ~ parent_educ * nr_siblings, data = df_transformed) |>
+  broom::tidy() |> 
+  knitr::kable(caption = "Math: Effect Modifiers")
+```
+
+```{r math_interaction_plot}
+df_transformed |>
+  ggplot(aes(x = nr_siblings, y = math_score, color = parent_educ)) + 
+  geom_point() +
+  geom_smooth(method="lm", se=F, aes(group = parent_educ, color = parent_educ)) +
+  theme_bw()
+```
+
+```{r reading_interaction_plot}
+df_transformed |>
+  ggplot(aes(x = nr_siblings, y = reading_score, group = parent_educ, color = parent_educ)) + 
+  geom_point() +
+  geom_smooth(method="lm", se=F) +
+  theme_bw()
+```
+
+```{r writing_interaction_plot}
+df_transformed |>
+  ggplot(aes(x = nr_siblings, y = writing_score, color = parent_educ)) + 
+  geom_point() +
+  geom_smooth(method="lm", se=F, aes(group = parent_educ, color = parent_educ)) +
+  theme_bw()
+```
+
+## Confounder
+
+## Confounding - Math
+
+```{r}
+# math
+lm(as.formula(math_best_cv_terms), data = step_df) |>
+  broom::tidy() |> 
+  knitr::kable(caption = "math: full under CV")
+
+lm(as.formula(gsub("gender", "", math_best_cv_terms)), data = step_df) |> #
+  broom::tidy() |> 
+  knitr::kable(caption = "math: without Gender")
+
+lm(as.formula(gsub("lunch_type", "", math_best_cv_terms)), data = step_df) |>
+  broom::tidy() |> 
+  knitr::kable(caption = "math: without Lunch Type")
+
+lm(as.formula(gsub("test_prep", "", math_best_cv_terms)), data = step_df) |> #
+  broom::tidy() |> 
+  knitr::kable(caption = "math: without Test Prep")
+
+lm(as.formula(gsub("\\+ parent_educ", "", math_best_cv_terms)), data = step_df) |> #
+  broom::tidy() |> 
+  knitr::kable(caption = "math: without Parent Education")
+
+lm(as.formula(gsub("ethnic_group", "", math_best_cv_terms)), data = step_df) |>
+  broom::tidy() |> 
+  knitr::kable(caption = "math: without Ethnic Group")
+
+lm(as.formula(gsub("\\+ wkly_study_hours", "", math_best_cv_terms)), data = step_df) |>
+  broom::tidy() |> 
+  knitr::kable(caption = "math: without Weekly Study Hours")
+
+lm(as.formula(gsub("\\+ nr_siblings", "", math_best_cv_terms)), data = step_df) |>
+  broom::tidy() |> 
+  knitr::kable(caption = "math: without Number of Siblings")
+```
+
+Removing `test_prep` will increase `wkly_study_hours` by `r abs(2.142 - 2.082)/2.082`. Therefore test prep could be a confounder for weekly study hours in hours
+
+## Confounding - Reading
+
+```{r}
+lm(as.formula(reading_best_cv_terms), data = step_df) |>
+  broom::tidy() |> 
+  knitr::kable(caption = "reading: full under CV")
+
+lm(as.formula(gsub("gender", "", reading_best_cv_terms)), data = step_df) |> #
+  broom::tidy() |> 
+  knitr::kable(caption = "reading: without Gender")
+
+lm(as.formula(gsub("lunch_type", "", reading_best_cv_terms)), data = step_df) |>
+  broom::tidy() |> 
+  knitr::kable(caption = "reading: without Lunch Type")
+
+lm(as.formula(gsub("test_prep", "", reading_best_cv_terms)), data = step_df) |> #
+  broom::tidy() |> 
+  knitr::kable(caption = "reading: without Test Prep")
+
+lm(as.formula(gsub("\\+ parent_educ", "", reading_best_cv_terms)), data = step_df) |> #
+  broom::tidy() |> 
+  knitr::kable(caption = "reading: without Parent Education")
+
+lm(as.formula(gsub("\\+ ethnic_group", "", reading_best_cv_terms)), data = step_df) |>
+  broom::tidy() |> 
+  knitr::kable(caption = "reading: without Ethnic Group")
+```
+
+We don't have any confounders for reading score
+
+## Confounding - Writing
+
+```{r}
+# Writing
+lm(as.formula(writing_best_cv_terms), data = step_df) |>
+  broom::tidy() |> 
+  knitr::kable(caption = "Writing: full under CV")
+
+lm(as.formula(gsub("gender", "", writing_best_cv_terms)), data = step_df) |> #
+  broom::tidy() |> 
+  knitr::kable(caption = "Writing: without Gender")
+
+lm(as.formula(gsub("lunch_type", "", writing_best_cv_terms)), data = step_df) |>
+  broom::tidy() |> 
+  knitr::kable(caption = "Writing: without Lunch Type")
+
+lm(as.formula(gsub("test_prep", "", writing_best_cv_terms)), data = step_df) |> #
+  broom::tidy() |> 
+  knitr::kable(caption = "Writing: without Test Prep")
+
+lm(as.formula(gsub("\\+ parent_educ", "", writing_best_cv_terms)), data = step_df) |> #
+  broom::tidy() |> 
+  knitr::kable(caption = "Writing: without Parent Education")
+
+lm(as.formula(gsub("ethnic_group", "", writing_best_cv_terms)), data = step_df) |>
+  broom::tidy() |> 
+  knitr::kable(caption = "Writing: without Ethnic Group")
+
+lm(as.formula(gsub("\\+ wkly_study_hours", "", writing_best_cv_terms)), data = step_df) |>
+  broom::tidy() |> 
+  knitr::kable(caption = "Writing: without Weekly Study Hours")
+```
+
+As we can see, removing `gender` will lower `wkly_study_hours` by `r abs(1.176-0.924)/1.176`, removing `test_prep` will increase `wkly_study_hours` by `r abs(1.176-1.792)/1.176`, and removing `parent_educ` will lower `wkly_study_hours` by `r abs(1.176-0.991)/1.176`.
+
+Hence, `gender`, `test_prep`, `parent_educ` could be potential confounder for `wkly_study_hours`
+
+# Final model
+
+## Math
+
+```{r}
+math_final = lm(math_score ~ lunch_type + ethnic_group + test_prep + gender + parent_educ + wkly_study_hours + nr_siblings, data = df_num)
+reading_final = lm(reading_score ~ lunch_type + gender + test_prep + parent_educ + ethnic_group, data = df_num)
+writing_final = lm(writing_score ~ gender + lunch_type + test_prep + parent_educ + ethnic_group + wkly_study_hours, data = df_num)
+```
+
+```{r}
+summary(math_final)
+```
+$\hat{MathScore} = 28.0713 + 12.5737*\text{Lunch Type} + 2.7439*\text{Ethnic Group}-5.2926*\text{Test Prep} + 5.3017 *\text{Gender} + 1.5210*\text{Parent Education} + 2.0825*\text{Weekly Study Hours} + 1.5210*\text{Number of Sibilings}$
+
+## Reading
+
+```{r}
+summary(reading_final)
+```
+
+
+$\hat{ReadingScore} = 66.7121 + 8.6667*\text{Lunch Type} -7.5066 *\text{Gender} - 6.8289*\text{Test Prep}+1.7606 *\text{Parent Education} +1.7930*\text{Ethnic Group}$
+
+## Writing
+
+```{r}
+summary(writing_final)
+```
+
+$\hat{WritingScore} = 65.3125 + 9.4976 *\text{Lunch Type}\ -9.1792 *\text{Gender} - 9.0360*\text{Test Prep}\ + 2.3242 *\text{Parent Education} +2.1684*\text{Ethnic Group} + 1.1762*\text{Weekly Study Hours}$
+
+## Check Assumptions
+
+### Math
+
+```{r}
+plot(math_final$fitted.values, math_final$residuals, 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     main = "Fitted Values vs Residuals",
+     pch = 20)
+
+# Adding a horizontal line at 0
+abline(h = 0, col = "red", lwd = 2)
+```
+The residuals show no pattern when plotted against independent variables indicates the relationship between the independent variables and the dependent variable is linear. Also, the residuals are independent of each other. The variance of errors is also constant. These attributes ensure the reliability and validity of the predictive model.
+
+### Reading
+```{r}
+plot(reading_final$fitted.values, reading_final$residuals, 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     main = "Fitted Values vs Residuals",
+     pch = 20)
+
+# Adding a horizontal line at 0
+abline(h = 0, col = "red", lwd = 2)
+```
+The residuals show no pattern when plotted against independent variables indicates the relationship between the independent variables and the dependent variable is linear. Also, the residuals are independent of each other. The variance of errors is also constant. These attributes ensure the reliability and validity of the predictive model.
+
+### Writing
+
+```{r}
+plot(writing_final$fitted.values, writing_final$residuals, 
+     xlab = "Fitted Values", 
+     ylab = "Residuals", 
+     main = "Fitted Values vs Residuals",
+     pch = 20)
+
+# Adding a horizontal line at 0
+abline(h = 0, col = "red", lwd = 2)
+```
+
+The residuals show no pattern when plotted against independent variables indicates the relationship between the independent variables and the dependent variable is linear. Also, the residuals are independent of each other. The variance of errors is also constant. These attributes ensure the reliability and validity of the predictive model.
+
+
+## Performance
+
+```{r}
+set.seed(123)
+
+# Create trainControl object for 5-fold cross-validation
+control <- trainControl(method = "cv", number = 5)
+
+math_model = train(math_score ~ lunch_type + ethnic_group + test_prep + gender + parent_educ + wkly_study_hours + nr_siblings,
+                  data = df_num,
+                  method = "lm",
+                  trControl = control)
+
+reading_model = train(reading_score ~ lunch_type + gender + test_prep + parent_educ + ethnic_group,
+                      data = df_num,
+                      method = "lm",
+                      trControl = control)
+writing_model = train(writing_score ~ gender + lunch_type + test_prep + parent_educ + ethnic_group + wkly_study_hours,
+                      data = df_num,
+                      method = "lm",
+                      trControl = control)
+math_model$results |> 
+  knitr::kable()
+reading_model$results |> 
+  knitr::kable()
+writing_model$results |> 
+  knitr::kable()
+```
+
+The math, reading, writing model explain 26.8%, 22.0%, 31.2% of the score's variance respectively, with a RMSE of 13.7, 13.4, 12.9 and a MAE of 11.1, 10.9, 10.4. These models have an average absolute difference 11.2, 10.9, 10.4 between true score and predicted score. Overall, these three multiple linear regression model indicates a reasonably good fit and predictive accuracy.
+
+# Leverage one score
+
+## Effect of adding Writing, Reading scores on Maths model
+
+```{r}
+maths_enhance=lm(math_score~reading_score+writing_score+lunch_type+ethnic_group+test_prep+gender+parent_educ+wkly_study_hours+nr_siblings,data=df_num)
+mse_maths_enhance=mean((df_num$math_score-predict(maths_enhance,newdata=df_num))^2)
+mse_maths=mean((df_num$math_score-predict(math_forward_func_fit,newdata=df_num))^2)
+```
+
+## Effect of adding Maths, Writing scores on Reading model
+
+```{r}
+reading_enhance=lm(reading_score~math_score+writing_score+lunch_type+gender+test_prep+parent_educ+ethnic_group,data=df_num)
+mse_reading_enhance=mean((df_num$reading_score-predict(reading_enhance,newdata=df_num))^2)
+mse_reading=mean((df_num$reading_score-predict(reading_criteria_fit,newdata=df_num))^2)
+```
+
+## Effect of adding Maths, Reading scores on Writing model
+
+```{r}
+writing_enhance=lm(writing_score~reading_score+math_score+lunch_type+gender+test_prep+parent_educ+ethnic_group+wkly_study_hours,data=df_num)
+mse_writing_enhance=mean((df_num$writing_score-predict(writing_enhance,newdata=df_num))^2)
+mse_writing=mean((df_num$writing_score-predict(writing_forward_func_fit,newdata=df_num))^2)
+```
+
+## Combined table
+
+```{r}
+tibble(
+  model_name=c("maths_reading+writing","maths_original","reading_maths+writing","reading_original","writing_maths+reading","writing_original"),
+  MSE=c(mse_maths_enhance,mse_maths,mse_reading_enhance,mse_reading,mse_writing_enhance,mse_writing)
+)|>knitr::kable()
+```
+
+We can see that the MSE all significantly decreased after adding other scores to fit one score's model, indicating that leveraging other scores to enhance one score's model is possible and successful.
+
+## Test potential overfitting issue - maths example
+
+```{r}
+# Split data into training and test sets
+set.seed(123)
+train_index = createDataPartition(df_num$math_score, p = 0.7, list = FALSE)
+train_data = df_num[train_index, ]
+test_data = df_num[-train_index, ]
+
+# Train the model on the training set
+maths_enhance = lm(math_score ~ reading_score + writing_score + lunch_type + ethnic_group + test_prep + gender + parent_educ + wkly_study_hours + nr_siblings, data = train_data)
+
+# Make predictions on the test set
+predictions = predict(maths_enhance, newdata = test_data)
+
+# Evaluate model performance on the test set (MSPE)
+mse_test = mean((test_data$math_score - predictions)^2)
+print(paste("MSE on Test Set:", mse_test))
+
+# Perform k-fold cross-validation (e.g., 5-fold)
+set.seed(123)
+folds = createFolds(df_num$math_score, k = 5, list = TRUE)
+
+mse_cv = numeric(length(folds))
+
+for (i in seq_along(folds)) {
+  train_indices = unlist(folds[-i])
+  test_indices = folds[[i]]
+
+  train_data_cv = df_num[train_indices, ]
+  test_data_cv = df_num[test_indices, ]
+
+  model_cv = lm(math_score ~ reading_score + writing_score + lunch_type + ethnic_group + test_prep + gender + parent_educ + wkly_study_hours + nr_siblings, data = train_data_cv)
+
+  predictions_cv = predict(model_cv, newdata = test_data_cv)
+  mse_cv[i] = mean((test_data_cv$math_score - predictions_cv)^2)
+}
+
+mean_mse_cv = mean(mse_cv)
+print(paste("Mean MSE across Folds:", mean_mse_cv))
+```
+
+The model performs as well on test set and also across folds. Adding other scores to one score's best fit model did enhance the model.
+

@@ -1,0 +1,300 @@
+---
+title: "Data Exploration"
+author: "Miao Fu"
+date: "2023-12-03"
+output: pdf_document
+fontsize: 12pt
+header-includes: \usepackage{setspace}\doublespacing
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, message=FALSE,warning=FALSE)
+library(tidyverse)
+library(dplyr)
+library(patchwork)
+library(corrplot)
+```
+
+```{r}
+df=read_csv("data/Project_1_data.csv")|>
+  janitor::clean_names()|>
+  mutate(
+    wkly_study_hours=ifelse(wkly_study_hours=="10-May","5-10",wkly_study_hours)
+  )|>
+  na.omit()
+```
+
+# Descriptive summary statistics for all variables 
+
+Two table with summary information on the descriptive statistics of all variables are listed below. The frequency and percentage of each categories in each categorical variable is listed out. For each numeric variable, the table includes values of mean, median, standard deviation, minimum, maximum, Q1 and Q3 values. 
+```{r, include=FALSE}
+sum_stats_cat = function(data) {
+  results = list()
+  
+  for (col in colnames(data)) {
+    freq_table = table(data[[col]])
+    total = sum(freq_table)
+    percentages = freq_table / total * 100
+    
+    results[[col]] = as.data.frame(cbind(freq_table, percentages))
+    colnames(results[[col]])=c("count","percent")
+  }
+  
+  return(results)
+}
+
+results_cat=df|>
+  select(-nr_siblings,-math_score,-reading_score,-writing_score)|>
+  sum_stats_cat()
+
+for (i in seq_along(results_cat)) {
+  print(results_cat[[i]])
+}
+
+sum_stats_numeric=function(x) {
+  results=list()
+  
+  for (col in colnames(x)){
+  table=tibble(
+  mean=mean(x[[col]],na.rm=TRUE),
+  median=median(x[[col]],na.rm=TRUE),
+  sd=sd(x[[col]],na.rm=TRUE),
+  minimum=min(x[[col]],na.rm=TRUE),
+  maximum=max(x[[col]],na.rm=TRUE),
+  q1=quantile(x[[col]], 0.25,na.rm=TRUE),
+  q3=quantile(x[[col]], 0.75,na.rm=TRUE))
+
+  results[[col]] = table
+  }
+  return(results)
+}
+
+results_num=df|>
+  select(nr_siblings,math_score,reading_score,writing_score)|>
+  sum_stats_numeric()
+
+
+```
+
+## Categorical Variables
+```{r,echo=FALSE}
+do.call(rbind, results_cat)|>
+  rownames_to_column(var="variable")|>
+  separate(variable,into=c("variable","category"),sep="\\.")|>
+  knitr::kable()
+```
+
+## Numeric Variables
+```{r,echo=FALSE}
+do.call(rbind, results_num)|>
+  rownames_to_column(var = "variable")|>
+  knitr::kable()
+```
+
+# Distribution of the outcomes
+
+The outcome of this study includes the following variables: maths scores, reading scores, and writing scores. QQplots of the outcome variables are created to explore the distribution of each score. QQplot compares the quantiles of the data against the quantiles of  a normal distribution. According the plots, majority of the data points of all three scores follow the straight qqline, which indicates they follow the normal distribution. However, there are some deviations from the line on the two ends of the distribution, which indicates the distributions might have heavier tails than normal distribution. Or, there might be skewness or outliers in the dataset. To further explore the distribution of outcomes, histograms and boxplots for the scores were incorporated. As suggested by the histograms and boxplots, all three scores are left-skewed with outliers on the left side of the distribution. 
+
+
+```{r,echo=FALSE}
+
+# qqplots of 3 scores
+qq_math=df|>
+  ggplot(aes(sample = math_score)) +
+  stat_qq() +
+  geom_qq_line()+
+  ggtitle("QQ Plot for maths score") +
+  xlab("Theoretical Quantiles") +
+  ylab("Sample Quantiles")
+
+qq_writing=df|>
+  ggplot(aes(sample = writing_score)) +
+  stat_qq() +
+  geom_qq_line()+
+  ggtitle("QQ Plot for writing score") +
+  xlab("Theoretical Quantiles") +
+  ylab("Sample Quantiles")
+
+qq_reading=df|>
+  ggplot(aes(sample = reading_score)) +
+  stat_qq() +
+  geom_qq_line()+
+  ggtitle("QQ Plot for reading score") +
+  xlab("Theoretical Quantiles") +
+  ylab("Sample Quantiles")
+
+(qq_math+qq_reading)/qq_writing
+
+# distribution for 3 scores
+
+maths_hist=df|>
+  select(math_score)|>
+  ggplot(aes(x=(math_score)))+
+  geom_histogram()+
+  labs(
+    x="Maths Score",
+    y="Count"
+  )
+
+maths_box=df|>
+  select(math_score)|>
+  ggplot(aes(x=(math_score)))+
+  geom_boxplot()+
+  labs(
+    x="Maths Score"
+  )
+
+reading_hist=df|>
+  select(reading_score)|>
+  ggplot(aes(x=(reading_score)))+
+  geom_histogram()+
+  labs(
+    x="Reading Score",
+    y="Count"
+  )
+
+reading_box=df|>
+  select(reading_score)|>
+  ggplot(aes(x=(reading_score)))+
+  geom_boxplot()+
+  labs(
+    x="Reading Score"
+  )
+
+writing_hist=df|>
+  select(writing_score)|>
+  ggplot(aes(x=(writing_score)))+
+  geom_histogram()+
+  labs(
+    x="Writing Score",
+    y="Count"
+  )
+
+writing_box=df|>
+  select(writing_score)|>
+  ggplot(aes(x=(writing_score)))+
+  geom_boxplot()+
+  labs(
+    x="Writing Score"
+  )
+
+(maths_hist+maths_box)/(reading_hist+reading_box)/(writing_hist+writing_box)
+```
+
+# Potential transformations 
+
+Potential transformations that may help further prepare the variables for later analysis were tested. With the expectation to normalize distribution and minimize skewness and impact of outliers, three types of transformations were tested: 1) Natural logarithm 2) Square Root 3) Inverse. The resulting plots are plotted in histograms shown below. There is no apparent improvement on the distribution of the outcome through the three transformations mentioned. Thus, orignial outcome data were chosen to be used in following statistical modeling steps. 
+
+```{r}
+#transform maths scores
+math_log=df|>
+  ggplot(aes(x=log(math_score)))+
+  geom_histogram()
+math_sqr=df|>
+  ggplot(aes(x=sqrt(math_score)))+
+  geom_histogram()
+math_inverse=df|>
+  ggplot(aes(x=1/(math_score)))+
+  geom_histogram()
+
+math_log+math_sqr+math_inverse
+
+#transform reading scores
+reading_log=df|>
+  ggplot(aes(x=log(reading_score)))+
+  geom_histogram()
+reading_sqr=df|>
+  ggplot(aes(x=sqrt(reading_score)))+
+  geom_histogram()
+reading_inverse=df|>
+  ggplot(aes(x=1/(reading_score)))+
+  geom_histogram()
+
+reading_log+reading_sqr+reading_inverse
+
+#transform writing scores 
+writing_log=df|>
+  ggplot(aes(x=log(writing_score)))+
+  geom_histogram()
+writing_sqr=df|>
+  ggplot(aes(x=sqrt(writing_score)))+
+  geom_histogram()
+writing_inverse=df|>
+  ggplot(aes(x=1/(writing_score)))+
+  geom_histogram()
+
+writing_log+writing_sqr+writing_inverse
+
+```
+
+# Pairwise relationships
+
+```{r，echo=FALSE}
+df|>mutate(
+  gender=case_match(
+    gender,
+    "female"~0,
+    "male"~1
+  ),
+  parent_educ=case_match(
+    parent_educ,
+    "master's degree"~0,
+    "associate's degree"~1,
+    "bachelor's degree"~2,
+    "high school"~3,
+    "some college"~4,
+    "some high school"~5
+  ),
+  ethnic_group=case_match(
+    ethnic_group,
+    "group A"~0,
+    "group B"~1,
+    "group C"~2,
+    "group D"~3,
+    "group E"~4,
+  ),
+  lunch_type=case_match(
+    lunch_type,
+    "free/reduced"~0,
+    "standard"~1
+  ),
+  test_prep=case_match(
+    test_prep,
+    "completed"~0,
+    "none"~1
+  ),
+  parent_marital_status=case_match(
+    parent_marital_status,
+    "divorced"~0,
+    "married"~1,
+    "single"~2,
+    "widowed"~3
+  ),
+  practice_sport=case_match(
+    practice_sport,
+    "never"~0,
+    "regularly"~1,
+    "sometimes"~2
+  ),
+   is_first_child=case_match(
+    is_first_child,
+    "no"~0,
+    "yes"~1
+   ),
+  transport_means=case_match(
+    transport_means,
+    "private"~0,
+    "school_bus"~1
+   ),
+  wkly_study_hours=case_match(
+    wkly_study_hours,
+    "5-10"~0,
+    "< 5"~1,
+    "> 10"~2
+   )
+)|>
+  cor()|>
+  corrplot(method='color',addCoef.col="grey", order = "AOE",number.cex=0.5)
+```
+
+By plotting our the pairwise correlation between variables, there is apparent linearity among the three scores. Other correlation coefficients are relatively small, indicating weak linear relationship between the variables. 
